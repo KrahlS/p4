@@ -50,54 +50,28 @@ inode_t* get_inode(int inum){
     return &(inode_table[inum]);
 }
 
-// Returns a pointer to the specified offset in the specified inode
-char* get_pointer(inode_t* inode, int offset){
-    return (char*)image+(inode->direct[offset/UFS_BLOCK_SIZE])*UFS_BLOCK_SIZE+offset%UFS_BLOCK_SIZE;
-}
-
-// Finds the first free byte in the specified bitmap and sets it to used
-// Returns the position of the free byte, or -1 if no free bytes are found
-int find_free(char* bitmap, int length){
-    for(int i = 0; i<length; i++){
-        if(get_bit((unsigned int*) bitmap, i)==0){
-            set_bit((unsigned int*) bitmap, i);
-            return i;
+            //send the response back to the client
+            int bytes_sent = UDP_Write(sd, &s, return_buffer, BUFFER_SIZE);
+            if (bytes_sent != BUFFER_SIZE) { // Check this
+                fprintf(stderr, "Error: failed to send response\n");
+            }
         }
-    }
-    return -1;
-}
-
-// Reads data from the specified inode at the specified offset
-// Returns 0 on success, or -1 on failure
-int file_read(int inum, char *buffer, int offset, int nbytes) {
-    // Get the inode with the specified inode number
-    inode_t* inode = get_inode(inum);
-    if (!inode) {
-        // Inode does not exist
-        return -1;
-    }
-
-    // Check if the read is within the bounds of the file
-    if (offset + nbytes > inode->size) {
-        fprintf(stderr, "Read too big\n");
-        return -1;
-    }
-
-    // Check if the read spans across one or two blocks
-    if (offset % UFS_BLOCK_SIZE + nbytes <= UFS_BLOCK_SIZE) {
-        // One block
-        char* block = (char*)image + (inode->direct[offset / UFS_BLOCK_SIZE]) * UFS_BLOCK_SIZE;
-        memcpy((void*)buffer, (void*)(block + offset % UFS_BLOCK_SIZE), nbytes);
-    } else {
-        // Two blocks
-        char* block1 = (char*)image + (inode->direct[offset / UFS_BLOCK_SIZE]) * UFS_BLOCK_SIZE;
-        char* block2 = (char*)image + (inode->direct[offset / UFS_BLOCK_SIZE + 1]) * UFS_BLOCK_SIZE;
-        memcpy((void*)buffer, (void*)(block1 + offset % UFS_BLOCK_SIZE), UFS_BLOCK_SIZE - offset % UFS_BLOCK_SIZE);
-        memcpy((void*)(buffer + UFS_BLOCK_SIZE - offset % UFS_BLOCK_SIZE), (void*)(block2), nbytes - (UFS_BLOCK_SIZE - offset % UFS_BLOCK_SIZE));
     }
 
     return 0;
 }
+    
+// 
+            // send the response back to the client
+            // int bytes_sent = UDP_Write(sd, &s, return_buffer, BUFFER_SIZE);
+            // if (bytes_sent != BUFFER_SIZE) { // Check this
+                // fprintf(stderr, "Error: failed to send response\n");
+            // }
+        // }
+    // }
+// 
+    // return 0;
+// }
 
 // Writes data to the specified inode at the specified offset
 // Returns 0 on success, or -1 on failure
