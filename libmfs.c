@@ -1,65 +1,89 @@
 #include <sys/select.h>
 #include <time.h>
 #include <stdio.h>
+#include "message.h"
 #include "mfs.h"
 #include "udp.h"
-#include "message.h" // change this
 
-struct sockaddr_in sendAddr, recAddr;
 struct sockaddr_in addrSnd,addrRcv;
-int sd; // socket descriptor
+int sd;
+int server_stat = 0;
 
 int MFS_Init(char *hostname, int port){
+ 
+    // bind to port using Piazza fix @1885
     int MIN_PORT = 20000;
     int MAX_PORT = 40000;
 
-    srand(time(0)); //TODO: maybe delete?
+    srand(time(0));
     int port_num = (rand() % (MAX_PORT - MIN_PORT) + MIN_PORT);
 
     sd  = UDP_Open(port_num);
-    int rec = UDP_FillSockAddr(&sendAddr, hostname, port);
-    assert(rec>-1);
+    int rc = UDP_FillSockAddr(&addrSnd, hostname, port);
+    assert(rc>-1);
+    server_stat = 1;
     return 0;
 }
 
 int MFS_Lookup(int pinum, char *name){
-    fprintf(stderr,"Lookup pinum: %d name: %s\n",pinum,name);
+
+    if(pinum < 0 || strlen(name) == 0){
+        return -1;
+    }
+    if(!server_stat){
+        return -1;
+    }
+
     message_t message;
     message.mtype = MFS_LOOKUP;
     message.inum = pinum;
     strcpy(message.name,name);
+
     int rc = UDP_Write(sd,&addrSnd,(char*)(&message),sizeof(message_t));
     if(rc<0){
-        printf("Client failed to send\n");
         return -1;
     }
-    printf("client:: wait for reply...\n");
-    rc = UDP_Read(sd, &addrRcv, (char *) &message, sizeof(message_t));
-    if(message.rc!=0) return -1;
+    rc = UDP_Read(sd, &addrRcv, (char *)&message, sizeof(message_t));
+    if(message.rc != 0){
+        return -1;
+    }
     return message.inum;
 }
 
 int MFS_Stat(int inum, MFS_Stat_t *m){
-    fprintf(stderr,"Stat inum: %d\n",inum);
+
+    if(inum < 0 || m == NULL){
+        return -1;
+    }
+
+    if(!server_stat){
+        return -1;
+    }
+
     message_t message;
     message.mtype = MFS_STAT;
     message.inum = inum;
     int rc = UDP_Write(sd,&addrSnd,(char*)(&message),sizeof(message_t));
     if(rc<0){
-        printf("Client failed to send\n");
         return -1;
     }
-    printf("client:: wait for reply...\n");
-    rc = UDP_Read(sd, &addrRcv, (char *) &message, sizeof(message_t));
-    if(message.rc!=0) return -1;
+
+    rc = UDP_Read(sd, &addrRcv, (char *)&message, sizeof(message_t));
+    if(message.rc!=0) {
+        return -1;
+    }
     m->type = message.type;
     m->size = message.nbytes;
-    fprintf(stderr,"Stat returned type %d size %d\n",m->type,m->size);
+    fprintf(stderr,"Stat returned type %d size %d\n",m->type,m->size); // TODO: check if we need this
     return 0;
 }
+
 int MFS_Write(int inum, char *buffer, int offset, int nbytes){
-    fprintf(stderr,"Write inum: %d offset: %d bytes: %d\n",inum,offset,nbytes);
-    if(nbytes>4096) return -1;
+
+    if(inum < 0 || strlen(buffer) == 0 || offset < 0 || nbytes > 4096){
+        return -1;
+    }
+
     message_t message;
     message.mtype = MFS_WRITE;
     message.inum = inum;
@@ -68,16 +92,24 @@ int MFS_Write(int inum, char *buffer, int offset, int nbytes){
     memcpy(message.buffer,buffer,nbytes);
     int rc = UDP_Write(sd,&addrSnd,(char*)(&message),sizeof(message_t));
     if(rc<0){
-        printf("Client failed to send\n");
         return -1;
     }
-    printf("client:: wait for reply...\n");
-    rc = UDP_Read(sd, &addrRcv, (char *) &message, sizeof(message_t));
+
+    rc = UDP_Read(sd, &addrRcv, (char *)&message, sizeof(message_t));
     if(message.rc!=0) return -1;
     return 0;
 }
+
 int MFS_Read(int inum, char *buffer, int offset, int nbytes){
-    fprintf(stderr,"Read inum: %d offset: %d bytes: %d",inum,offset,nbytes);
+
+    if(inum < 0 || offset < 0 || nbytes < 0){
+        return -1;
+    }
+
+    if(!server_stat){
+        return -1;
+    } 
+
     message_t message;
     message.mtype = MFS_READ;
     message.inum = inum;
@@ -85,17 +117,25 @@ int MFS_Read(int inum, char *buffer, int offset, int nbytes){
     message.nbytes = nbytes;
     int rc = UDP_Write(sd,&addrSnd,(char*)(&message),sizeof(message_t));
     if(rc<0){
-        printf("Client failed to send\n");
         return -1;
     }
-    printf("client:: wait for reply...\n");
+
     rc = UDP_Read(sd, &addrRcv, (char *) &message, sizeof(message_t));
     if(message.rc!=0) return -1;
     memcpy(buffer,message.buffer,nbytes);
     return 0;
 }
+
 int MFS_Creat(int pinum, int type, char *name){
-    fprintf(stderr,"Create pinum: %d type: %d name: %s",pinum,type,name);
+
+    if(pinum < 0 || strlen(name) < 0  || type > 1 || type < 0){
+        return -1;
+    }
+
+    if(!server_stat){
+        return -1;
+    }
+
     if(strlen(name)>=28) return -1;
     message_t message;
     message.mtype = MFS_CRET;
@@ -104,35 +144,49 @@ int MFS_Creat(int pinum, int type, char *name){
     strcpy(message.name,name);
     int rc = UDP_Write(sd,&addrSnd,(char*)(&message),sizeof(message_t));
     if(rc<0){
-        printf("Client failed to send\n");
         return -1;
     }
-    printf("client:: wait for reply...\n");
+
     rc = UDP_Read(sd, &addrRcv, (char *) &message, sizeof(message_t));
     if(message.rc!=0) return -1;
-    return 0;}
+    return 0;
+}
+
 int MFS_Unlink(int pinum, char *name){
-    fprintf(stderr,"Unlink pinum: %d name: %s\n",pinum,name);
+
+    if(pinum < 0 || strlen(name) < 0){
+        return -1;
+    }
+
+    if(!server_stat){
+        return -1;
+    }
     message_t message;
     message.mtype = MFS_UNLINK;
     message.inum = pinum;
     strcpy(message.name,name);
     int rc = UDP_Write(sd,&addrSnd,(char*)(&message),sizeof(message_t));
     if(rc<0){
-        printf("Client failed to send\n");
         return -1;
     }
-    fprintf(stderr,"client:: wait for reply...\n");
+
     rc = UDP_Read(sd, &addrRcv, (char *) &message, sizeof(message_t));
-    fprintf(stderr,"Unlink return code %d %d\n",rc, message.rc);
-    if(message.rc!=0) return -1;
-    return 0;}
+    if(message.rc!=0){
+        return -1;
+    }
+    return 0;
+}
+
 int MFS_Shutdown(){
+
+    if(!server_stat){
+        return -1;
+    } 
+
     message_t message;
     message.mtype = MFS_SHUTDOWN;
-    int rc = UDP_Write(sd,&addrSnd,(char*)(&message),sizeof(message_t));
+    int rc = UDP_Write(sd, &addrSnd, (char *)(&message), sizeof(message_t));
     if(rc<0){
-        printf("Client failed to send\n");
         return -1;
     }
     return 0;
