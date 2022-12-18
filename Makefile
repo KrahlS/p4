@@ -8,7 +8,7 @@ SRCS   := server.c  \
 OBJS   := ${SRCS:c=o}
 PROGS  := ${SRCS:.c=}
 
-compile: mfs.so all
+compile: libmfs.so all
 
 .PHONY: all
 all: ${PROGS}
@@ -18,16 +18,16 @@ ${PROGS} : % : %.o Makefile
 
 clean:
 	rm -f ${PROGS} ${OBJS}
-	rm -f mfs.so mfs.o
+	rm -f libmfs.so libmfs.o
 
 %.o: %.c Makefile
 	${CC} ${CFLAGS} -c $<
 
-mfs.so: mfs.o mkfs
-	gcc -shared -Wl,-soname,mfs.so -o mfs.so mfs.o udp.h udp.c -lc
+libmfs.so: libmfs.o mkfs
+	gcc -shared -Wl,-soname,mfs.so -o libmfs.so libmfs.o udp.h udp.c -lc
 
-mfs.o: mfs.c
-	gcc -fPIC -g -c -Wall mfs.c
+libmfs.o: mfs.c
+	gcc -fPIC -g -c -Wall libmfs.c
 
 main:
 	gcc -o main main.c -Wall -L. -lmfs
