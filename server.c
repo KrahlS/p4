@@ -67,8 +67,18 @@ int find_free(char* bitmap, int length){
     return -1;
 }
 
-// Reads data from the specified inode at the specified offset
-// Returns 0 on success, or -1 on failure
+/**
+ * This function reads data from a file in the file system.
+ *
+ *  inum:    the inode number of the file to read from
+ *  buffer:  the buffer to store the read data
+ *  offset:  the offset in the file to start reading from
+ *  nbytes:  the number of bytes to read
+ *
+ *  returns: an integer indicating the success or failure of the operation
+ *           (0 for success, -1 for failure)
+ */
+
 int file_read(int inum, char *buffer, int offset, int nbytes) {
     // Get the inode with the specified inode number
     inode_t* inode = get_inode(inum);
@@ -99,8 +109,19 @@ int file_read(int inum, char *buffer, int offset, int nbytes) {
     return 0;
 }
 
-// Writes data to the specified inode at the specified offset
-// Returns 0 on success, or -1 on failure
+
+/**
+ * This function writes data to a file in the file system.
+ *
+ *  inum:    the inode number of the file to write to
+ *  buffer:  the buffer containing the data to write
+ *  offset:  the offset in the file to start writing from
+ *  nbytes:  the number of bytes to write
+ *
+ *  returns: an integer indicating the success or failure of the operation
+ *           (0 for success, -1 for failure)
+ */
+
 int file_write(int inum, char *buffer, int offset, int nbytes) {
     // Get the inode with the specified inode number
     inode_t* inode = get_inode(inum);
@@ -155,6 +176,298 @@ int file_write(int inum, char *buffer, int offset, int nbytes) {
     return 0;
 }
 
-int main(int argc, char *argv[]) {
-    return 0; 
+/**
+ * This function creates a new file or directory in the file system.
+ *
+ *  pinum:  the inode number of the parent directory
+ *  type:   the type of file to create (UFS_REGULAR or UFS_DIRECTORY)
+ *  name:   the name of the file or directory to create
+ *
+ *  returns:  an integer indicating the success or failure of the operation
+ *            (1 for success, -1 for failure)
+ */
+int create(int pinum, int type, char *name){
+    inode_t* parent_inode = get_inode(pinum);
+    if(parent_inode==0) return -1;
+    if(parent_inode->type!=UFS_DIRECTORY) return -1;
+    if(strlen(name)>=28) return -1;
+
+    //Check for same name
+    for(int i = 0; i<parent_inode->size/sizeof(dir_ent_t); i++){
+        dir_ent_t* directory_entry = (dir_ent_t*) get_pointer(parent_inode,i*sizeof(dir_ent_t));
+        if(directory_entry->inum!=-1 && strcmp(directory_entry->name,name)==0){
+            return 0;
+        }
+    }
+    int flag = 0;
+    //Find an open slot in the parent directory
+    for(int i = 0; i<parent_inode->size/sizeof(dir_ent_t); i++){
+        dir_ent_t* directory_entry = (dir_ent_t*) get_pointer(parent_inode,i*sizeof(dir_ent_t));
+        if(directory_entry->inum==-1){
+            strcpy(directory_entry->name,name);
+            int index = find_free(inode_bitmap,s->num_inodes);
+            if(index<0) return -1;
+            directory_entry->inum = index;
+            inode_t* inode = &inode_table[index];
+            int data_block = find_free(data_bitmap,s->data_region_len);
+            if(data_block<0) return -1;
+            inode->direct[0] = data_block+s->data_region_addr;
+            inode->size = 0;
+            inode->type = type;
+            if(inode->type==UFS_DIRECTORY){
+                dir_ent_t* self = (dir_ent_t*)get_pointer(inode,0);
+                sprintf(self->name,".");
+                self-> inum = index;
+                dir_ent_t* parent = (dir_ent_t*)get_pointer(inode, sizeof(dir_ent_t));
+                sprintf(parent->name,"..");
+                parent -> inum = pinum;
+                inode->size = 2*sizeof(dir_ent_t);
+            }
+            flag = 1;
+        }
+    }
+
+    //Didn't find empty slot within, so add onto the end
+    if(flag!=1){   
+        //If parent directory is full allocate a new block for it
+        if(parent_inode->size%UFS_BLOCK_SIZE==0){
+            int data_block = find_free(data_bitmap,s->data_region_len);
+            if(data_block<0) return -1;
+            parent_inode->direct[parent_inode->size/UFS_BLOCK_SIZE] = data_block+s->data_region_addr;
+        }
+        parent_inode->size +=sizeof(dir_ent_t);
+        //Get last directory entry
+        dir_ent_t* directory_entry = (dir_ent_t*) get_pointer(parent_inode,parent_inode->size-sizeof(dir_ent_t));
+        strcpy(directory_entry->name,name);
+        int index = find_free(inode_bitmap,s->num_inodes);
+        if(index<0) return -1;
+        directory_entry->inum = index;
+        inode_t* inode = &inode_table[index];
+        int data_block = find_free(data_bitmap,s->data_region_len);
+        if(data_block<0) return -1;
+        inode->direct[0] = data_block+s->data_region_addr;
+        inode->size = 0;
+        inode->type = type;
+        if(inode->type == UFS_DIRECTORY){
+            dir_ent_t* self = (dir_ent_t*)get_pointer(inode,0);
+            sprintf(self->name,".");
+            self-> inum = index;
+            dir_ent_t* parent = (dir_ent_t*)get_pointer(inode, sizeof(dir_ent_t));
+            sprintf(parent->name,"..");
+            parent -> inum = pinum;
+            inode->size = 2*sizeof(dir_ent_t);
+        }
+    }
+
+    return 0;
 }
+
+/*
+Unlinks (deletes) a file within a distributed file system built on a UDP connection.
+
+Arguments:
+    pinum: an integer representing the inode number of the parent directory of the file to be unlinked.
+    name: a string representing the name of the file to be unlinked.
+
+Returns:
+    0 if the file was successfully unlinked.
+    -1 if the parent inode is not found or is not a directory, or if the file to be unlinked is a non-empty directory.
+    0 if the file was not found in the parent directory.
+*/
+int file_unlink(int pinum, char *name) {
+    // Get the inode for the parent directory and return -1 if it is not found
+    inode_t* parent_inode = get_inode(pinum);
+    if(parent_inode == 0 || parent_inode->type != UFS_DIRECTORY) return -1;
+
+    // Iterate through the directory entries in the parent inode until the file is found
+    int i = 0;
+    while(i < parent_inode->size / sizeof(dir_ent_t)) {
+        // Get the current directory entry
+        dir_ent_t* directory_entry = (dir_ent_t*) get_pointer(parent_inode, i * sizeof(dir_ent_t));
+        // Check if the current directory entry is the file to be unlinked
+        if(directory_entry->inum != -1 && strcmp(directory_entry->name, name) == 0) {
+            // Get the inode for the file to be unlinked and return -1 if it is a non-empty directory
+            inode_t* inode = get_inode(directory_entry->inum);
+            if(inode->type == UFS_DIRECTORY) {
+                int j = 2;
+                while(j < inode->size / sizeof(dir_ent_t)) {
+                    dir_ent_t* entry = (dir_ent_t*) get_pointer(inode, j * sizeof(dir_ent_t));
+                    if(entry->inum != -1) return -1;
+                    j++;
+                }
+            }
+
+            // Unlink the file by setting its inum to -1 in the directory entry
+            directory_entry->inum = -1;
+
+            // Clear the data blocks used by the file from the data bitmap
+            for(int j = 0; j <= inode->size / UFS_BLOCK_SIZE; j++) {
+                clear_bit((unsigned int*)data_bitmap, inode->direct[j] - s->data_region_addr);
+            }
+            // Clear the inode from the inode bitmap
+            clear_bit((unsigned int*)inode_bitmap, directory_entry->inum);
+            return 0;
+        }
+        i++;
+    }
+
+    // Return 0 if the file was not found in the parent directory
+    return 0;
+}
+
+/*
+Looks up a file within a distributed file system built on a UDP connection.
+
+Arguments:
+    pinum: an integer representing the inode number of the parent directory of the file to be looked up.
+    name: a string representing the name of the file to be looked up.
+
+Returns:
+    The inode number of the file if it is found in the parent directory.
+    -1 if the parent inode is not found or is not a directory, or if the file is not found in the parent directory.
+*/
+int lookup(int pinum, char *name) {
+    // Get the inode for the parent directory and return -1 if it is not found or is not a directory
+    inode_t* parent_inode = get_inode(pinum);
+    if(parent_inode == 0 || parent_inode->type != UFS_DIRECTORY) return -1;
+
+    // Iterate through the directory entries in the parent inode
+    int i = 0; 
+    while (i < parent_inode->size / sizeof(dir_ent_t)){
+        // Get the current directory entry
+        dir_ent_t* directory_entry = (dir_ent_t*) get_pointer(parent_inode, i * sizeof(dir_ent_t));
+
+        // Check if the current directory entry is the file to be looked up
+        if(directory_entry->inum != -1 && strcmp(directory_entry->name, name) == 0) {
+            // Return the inode number of the file if it is found
+            return directory_entry->inum;
+        }
+        i++; 
+    }
+
+    // Return -1 if the file is not found in the parent directory
+    return -1;
+}
+
+/*
+Returns an integer representing the type and size of a file within a distributed file system built on a UDP connection.
+
+Arguments:
+    inode_num: an integer representing the inode number of the file to be queried.
+
+Returns:
+    The type and size of the file encoded in an integer if the inode is found.
+    -1 if the inode is not found.
+*/
+int file_stat(int inode_num) {
+    // Get the inode for the file and return -1 if it is not found
+    inode_t* inode = get_inode(inode_num);
+    return inode ? (inode->size << 1) + inode->type : -1;
+}
+
+int main(int argc, char *argv[]) {
+  signal(SIGINT, intHandler);
+
+  // Check number of arguments
+  if (argc != 3) {
+    fprintf(stderr, "Invalid number of arguments\n");
+    return 1;
+  }
+
+  // Open socket and file system image
+  int portnum = atoi(argv[1]);
+  sd = UDP_Open(portnum);
+  if (sd < 0) {
+    fprintf(stderr, "Failed to open socket\n");
+    return 1;
+  }
+  fileSystemImage = open(argv[2], O_RDWR|O_SYNC);
+  if (fileSystemImage == -1) {
+    fprintf(stderr, "Image does not exist\n");
+    return -1;
+  }
+
+  // Map file system image to memory
+  struct stat sbuf;
+  int rc = fstat(fileSystemImage, &sbuf);
+  if (rc < 0) {
+    fprintf(stderr, "Failed to get file system image stat\n");
+    return 1;
+  }
+  image = mmap(NULL, sbuf.st_size, PROT_READ|PROT_WRITE, MAP_SHARED, fileSystemImage, 0);
+  if (image == MAP_FAILED) {
+    fprintf(stderr, "Failed to map file system image to memory\n");
+    return 1;
+  }
+
+  // Get superblock, inode table, and bitmaps
+  s = (super_t *)image;
+  inode_table = image + (s->inode_region_addr * UFS_BLOCK_SIZE);
+  inode_bitmap = image + (s->inode_bitmap_addr * UFS_BLOCK_SIZE);
+  data_bitmap = image + (s->data_bitmap_addr * UFS_BLOCK_SIZE);
+
+  // Main loop
+  while (1) {
+    struct sockaddr_in addr;
+    int result;
+    message_t* message = malloc(sizeof(message_t));
+    int rc = UDP_Read(sd, &addr, (char*)message, BUFFER_SIZE);
+    if (rc <= 0) continue;
+
+    // Handle message based on type
+    switch(message->mtype) {
+      case MFS_INIT:
+        break;
+      case MFS_LOOKUP:
+        result = lookup(message->inum, message->name);
+        message->inum = result;
+        rc = UDP_Write(sd, &addr, (char*)message, BUFFER_SIZE);
+        fprintf(stderr, "Server: Lookup Reply\n");
+        break;
+      case MFS_STAT:
+        result = file_stat(message->inum);
+        if (result == -1) {
+          message->rc = -1;
+        } else {
+          message->type = result & 1;
+          message->nbytes = result / 2;
+        }
+        rc = UDP_Write(sd, &addr, (char*)message, BUFFER_SIZE);
+        fprintf(stderr, "Server: Stat Reply %d %d\n", message->type, message->nbytes);
+        break;
+      case MFS_WRITE:
+        result = file_write(message->inum, message->buffer, message->offset, message->nbytes);
+        message->rc = result;
+        rc = UDP_Write(sd, &addr, (char*)message, BUFFER_SIZE);
+        fprintf(stderr, "Server: Write Reply\n");
+        break;
+      case MFS_READ:
+        result = file_read(message->inum, message->buffer, message->offset, message->nbytes);
+        message->rc = result;
+        rc = UDP_Write(sd, &addr, (char*)message, BUFFER_SIZE);
+        fprintf(stderr, "Server: Read Reply\n");
+        break;
+      case MFS_CRET:
+        result = create(message->inum, message->type, message->name);
+        message->rc = result;
+        rc = UDP_Write(sd, &addr, (char*)message, BUFFER_SIZE);
+        fprintf(stderr, "Server: Create Reply\n");
+        break;
+      case MFS_UNLINK:
+        result = file_unlink(message->inum, message->name);
+        message->rc = result;
+        rc = UDP_Write(sd, &addr, (char*)message, BUFFER_SIZE);
+        fprintf(stderr, "Server: Unlink Reply\n");
+        break;
+    case MFS_SHUTDOWN:
+        exit(0);
+        break;
+    default:
+        fprintf(stderr, "Server: Invalid request\n");
+        break;
+    }
+    free(message);
+  }
+  return 0;
+}
+     
