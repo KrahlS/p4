@@ -14,12 +14,12 @@
 typedef struct {
     int mtype; // message type from above
     int rc;    // return code
-    int inum;
+    char buffer[4096];
+    char name[28];
     int offset;
     int nbytes;
     int type;
-    char buffer[4096];
-    char name[28];
+    int inum;
 } message_t;
 
 #endif // __message_h__

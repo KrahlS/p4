@@ -28,12 +28,3 @@ libmfs.so: libmfs.o mkfs
 
 libmfs.o: libmfs.c
 	gcc -fPIC -g -c -Wall libmfs.c
-
-main:
-	gcc -o main main.c -Wall -L. -lmfs
-	
-test:
-	sh ~cs537-1/tests/p4/p4-test/runtests.sh -c
-
-makeImage: mkfs
-	./mkfs -f test.img
