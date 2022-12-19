@@ -24,16 +24,16 @@ clean:
 	${CC} ${CFLAGS} -c $<
 
 libmfs.so: libmfs.o mkfs
-	gcc -shared -Wl,-soname,mfs.so -o libmfs.so libmfs.o udp.h udp.c -lc
+	gcc -shared -Wl,-soname,libmfs.so -o libmfs.so libmfs.o udp.h udp.c -lc
 
-libmfs.o: mfs.c
+libmfs.o: libmfs.c
 	gcc -fPIC -g -c -Wall libmfs.c
 
 main:
 	gcc -o main main.c -Wall -L. -lmfs
 	
-runTests:
-	sh /home/cs537-1/tests/p4/p4-test-12.11/runtests.sh -c
+test:
+	sh ~cs537-1/tests/p4/p4-test/runtests.sh -c
 
 makeImage: mkfs
 	./mkfs -f test.img

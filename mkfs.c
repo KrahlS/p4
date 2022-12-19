@@ -16,7 +16,7 @@ int main(int argc, char *argv[]) {
     int ch;
     char *image_file = NULL;
     int num_inodes = 32;
-    int num_data = 32;
+    int num_data_blocks = 32;
     int visual = 0;
 
     while ((ch = getopt(argc, argv, "i:d:f:v")) != -1) {
@@ -25,7 +25,7 @@ int main(int argc, char *argv[]) {
 	    num_inodes = atoi(optarg);
 	    break;
 	case 'd':
-	    num_data = atoi(optarg);
+	    num_data_blocks = atoi(optarg);
 	    break;
 	case 'f':
 	    image_file = optarg;
@@ -57,21 +57,27 @@ int main(int argc, char *argv[]) {
     }
 
     assert(num_inodes >= 32);
-    assert(num_data >= 32);
+    assert(num_data_blocks >= 32);
 
     // presumed: block 0 is the super block
     super_t s;
 
+    // Total inodes and data blocks 
+    s.num_data_blocks = num_data_blocks;
+    s.num_inodes = num_inodes;
+
     // inode bitmap
+    int bits_per_block = (8 * UFS_BLOCK_SIZE); // remember, there are 8 bits per byte
+
     s.inode_bitmap_addr = 1;
-    s.inode_bitmap_len = num_inodes / UFS_BLOCK_SIZE;
-    if (num_inodes % UFS_BLOCK_SIZE != 0)
+    s.inode_bitmap_len = num_inodes / bits_per_block;
+    if (num_inodes % bits_per_block != 0)
 	s.inode_bitmap_len++;
 
     // data bitmap
     s.data_bitmap_addr = s.inode_bitmap_addr + s.inode_bitmap_len;
-    s.data_bitmap_len = num_data / UFS_BLOCK_SIZE;
-    if (num_data % UFS_BLOCK_SIZE != 0)
+    s.data_bitmap_len = num_data_blocks / bits_per_block;
+    if (num_data_blocks % bits_per_block != 0)
 	s.data_bitmap_len++;
 
     // inode table
@@ -83,7 +89,7 @@ int main(int argc, char *argv[]) {
 
     // data blocks
     s.data_region_addr = s.inode_region_addr + s.inode_region_len;
-    s.data_region_len = num_data;
+    s.data_region_len = num_data_blocks;
 
     int total_blocks = 1 + s.inode_bitmap_len + s.data_bitmap_len + s.inode_region_len + s.data_region_len;
 
@@ -96,7 +102,7 @@ int main(int argc, char *argv[]) {
 
     printf("total blocks        %d\n", total_blocks);
     printf("  inodes            %d [size of each: %lu]\n", num_inodes, sizeof(inode_t));
-    printf("  data blocks       %d\n", num_data);
+    printf("  data blocks       %d\n", num_data_blocks);
     printf("layout details\n");
     printf("  inode bitmap address/len %d [%d]\n", s.inode_bitmap_addr, s.inode_bitmap_len);
     printf("  data bitmap address/len  %d [%d]\n", s.data_bitmap_addr, s.data_bitmap_len);
@@ -143,7 +149,7 @@ int main(int argc, char *argv[]) {
 
     inode_block itable;
     itable.inodes[0].type = UFS_DIRECTORY;
-    itable.inodes[0].size = sizeof(dir_ent_t); // in bytes
+    itable.inodes[0].size = sizeof(dir_ent_t) << 1; // in bytes
     itable.inodes[0].direct[0] = s.data_region_addr;
     for (i = 1; i < DIRECT_PTRS; i++)
 	itable.inodes[0].direct[i] = -1;
